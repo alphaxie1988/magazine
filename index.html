@@ -106,13 +106,14 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);
   flex:1;display:none;align-items:center;justify-content:center;
   width:100%;overflow:hidden;padding:0;position:relative}
 #pv-track{width:100%;height:100%;position:relative;overflow:hidden}
-#pv-stage{position:absolute;inset:0;perspective:1400px}
+#pv-stage{position:absolute;inset:0}
 .pv-layer{
   position:absolute;inset:0;
   display:flex;align-items:center;justify-content:center}
 #pv-flipper{
   z-index:1;
-  backface-visibility:hidden;-webkit-backface-visibility:hidden}
+  perspective:1400px}
+#pv-img{backface-visibility:hidden;-webkit-backface-visibility:hidden}
 .pv-page{
   max-width:100%;max-height:100%;object-fit:contain;display:block;
   border-radius:2px;box-shadow:0 4px 20px rgba(0,0,0,0.22);
@@ -271,6 +272,7 @@ function checkOrientation() {
     pvImg.src = medSrc(pPage);
     if(pPage+1<=TOTAL) pvImgUnder.src = medSrc(pPage+1); else pvImgUnder.src='';
     pvFlipper.style.cssText = '';   // clear all inline styles
+    pvImg.style.cssText = '';
     pvStage.style.transform = '';
     scale=1; px=0; py=0;
     pvBusy=false; pvDragInfo=null; pvPinching=false;
@@ -483,14 +485,14 @@ const PV_DUR  = 420;  // full 180° flip duration ms
 const PV_EASE = 'cubic-bezier(0.4,0,0.2,1)';
 
 function _pvReset() {
-  pvFlipper.style.transition = 'none';
-  pvFlipper.style.transform  = '';
-  pvFlipper.style.transformOrigin = '';
+  pvImg.style.transition = 'none';
+  pvImg.style.transform  = '';
+  pvImg.style.transformOrigin = '';
 }
 
 function _pvSnapBack() {
-  pvFlipper.style.transition = `transform 260ms ease-out`;
-  pvFlipper.style.transform  = 'rotateY(0deg)';
+  pvImg.style.transition = `transform 260ms ease-out`;
+  pvImg.style.transform  = 'rotateY(0deg)';
   setTimeout(() => { _pvReset(); pvFlipper.style.zIndex = ''; }, 300);
 }
 
@@ -498,10 +500,10 @@ function _pvCommit(n, dir, fromAngle) {
   const target  = dir === 1 ? -180 : 180;
   const remain  = Math.abs(target - fromAngle);
   const dur     = Math.max(80, PV_DUR * remain / 180);
-  pvFlipper.style.transition = `transform ${dur}ms ease-in`;
-  pvFlipper.style.transform  = `rotateY(${target}deg)`;
+  pvImg.style.transition = `transform ${dur}ms ease-in`;
+  pvImg.style.transform  = `rotateY(${target}deg)`;
   setTimeout(() => {
-    // pvFlipper is now invisible (backface); pvImgUnder shows page n
+    // pvImg is now invisible (backface); pvImgUnder shows page n
     pPage = n; updateUI();
     loadImg(n); loadImg(n+1); loadImg(n-1);
     // Move pvFlipper behind pvImgUnder while we swap its image
@@ -526,8 +528,8 @@ function showPage(n, _dir) {
   const dir = n > pPage ? 1 : -1;
   pvImgUnder.src = medSrc(n);
   loadImg(n); if(n+1<=TOTAL)loadImg(n+1); if(n-1>=1)loadImg(n-1);
-  pvFlipper.style.transformOrigin = dir===1 ? 'left center' : 'right center';
   _pvReset();
+  pvImg.style.transformOrigin = dir===1 ? 'left center' : 'right center';
   playFlip();
   requestAnimationFrame(() => _pvCommit(n, dir, 0));
 }
@@ -536,7 +538,7 @@ function showPage(n, _dir) {
 function pvDragStart(x, y) {
   if (pvBusy) return;
   pvDragInfo = { x0:x, y0:y, px0:px, py0:py, pan:scale>1, dir:0, angle:0 };
-  if (!pvDragInfo.pan) pvFlipper.style.transition = 'none';
+  if (!pvDragInfo.pan) pvImg.style.transition = 'none';
 }
 function pvDragMove(x, y) {
   if (!pvDragInfo) return;
@@ -550,14 +552,14 @@ function pvDragMove(x, y) {
     pvDragInfo.dir = dx < 0 ? 1 : -1;
     const ok = (pvDragInfo.dir===1 && pPage<TOTAL) || (pvDragInfo.dir===-1 && pPage>1);
     if (!ok) { pvDragInfo.dir=0; return; }
-    pvFlipper.style.transformOrigin = pvDragInfo.dir===1 ? 'left center' : 'right center';
+    pvImg.style.transformOrigin = pvDragInfo.dir===1 ? 'left center' : 'right center';
     pvImgUnder.src = medSrc(pvDragInfo.dir===1 ? pPage+1 : pPage-1);
   }
-  const raw = -dx / (window.innerWidth * 0.45) * 90;
+  const raw = dx / (window.innerWidth * 0.45) * 90;
   const angle = pvDragInfo.dir===1
     ? Math.max(-89, Math.min(0, raw))
     : Math.max(0,   Math.min(89, raw));
-  pvFlipper.style.transform = `rotateY(${angle}deg)`;
+  pvImg.style.transform = `rotateY(${angle}deg)`;
   pvDragInfo.angle = angle;
 }
 function pvDragEnd(x) {

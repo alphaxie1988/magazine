@@ -32,21 +32,22 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);
   background:radial-gradient(ellipse,rgba(0,0,0,0.28) 0%,transparent 72%);
   filter:blur(6px);pointer-events:none;z-index:-1}
 
-.static-bg{position:absolute;top:0;width:50%;height:100%;background:var(--page);pointer-events:none;transition:background 0.3s,box-shadow 0.3s}
-.static-bg.left{left:0;box-shadow:inset -4px 0 10px rgba(0,0,0,0.07),2px 0 8px rgba(0,0,0,0.06)}
-.static-bg.right{right:0;box-shadow:inset 4px 0 10px rgba(0,0,0,0.07),-2px 0 8px rgba(0,0,0,0.06)}
-/* at-start: empty left side — clear it and remove right-page's leftward bleeding shadow */
-#book.at-start .static-bg.left {background:var(--bg);box-shadow:none}
-#book.at-start .static-bg.right{box-shadow:inset 4px 0 10px rgba(0,0,0,0.07)}
-/* at-end: empty right side — clear it and remove left-page's rightward bleeding shadow */
-#book.at-end   .static-bg.right{background:var(--bg);box-shadow:none}
-#book.at-end   .static-bg.left {box-shadow:inset -4px 0 10px rgba(0,0,0,0.07)}
+/* Static backgrounds start at bg colour — they become white only when a page covers them */
+.static-bg{position:absolute;top:0;width:50%;height:100%;background:var(--bg);pointer-events:none;transition:background 0s,box-shadow 0s}
+.static-bg.left{left:0}
+.static-bg.right{right:0}
+/* Only show page-white and inset shadows when content is present on that side */
+#book.has-left  .static-bg.left {background:var(--page);box-shadow:inset -4px 0 10px rgba(0,0,0,0.07),2px 0 8px rgba(0,0,0,0.06)}
+#book.has-right .static-bg.right{background:var(--page);box-shadow:inset 4px 0 10px rgba(0,0,0,0.07),-2px 0 8px rgba(0,0,0,0.06)}
 .spine{position:absolute;left:calc(50% - 2px);top:0;width:4px;height:100%;
   background:linear-gradient(to right,rgba(0,0,0,0.13),rgba(0,0,0,0.05),rgba(0,0,0,0.02));
-  z-index:900;pointer-events:none;transition:opacity 0.3s}
-/* hide spine when one side is empty — it bleeds gradient onto the background */
+  z-index:900;pointer-events:none;transition:opacity 0s}
+/* hide spine and ground shadow when one side is empty */
 #book.at-start .spine,
 #book.at-end   .spine{opacity:0}
+/* ground shadow: only cover the filled half at start/end */
+#book.at-start::after{left:50%;width:42%}
+#book.at-end::after  {left:8%;width:42%}
 
 /* ── Page-stack thickness edges ──────────────── */
 .book-edge{
@@ -370,9 +371,15 @@ function updateEdges() {
   edgeLeft.style.width  = (cur / LEAVES * MAX_EDGE).toFixed(1) + 'px';
 }
 
+function updateBookClasses() {
+  book.classList.toggle('at-start',  cur === 0);
+  book.classList.toggle('at-end',    cur === LEAVES);
+  book.classList.toggle('has-left',  cur > 0);
+  book.classList.toggle('has-right', cur < LEAVES);
+}
+
 function updateUI() {
-  book.classList.toggle('at-start', cur === 0);
-  book.classList.toggle('at-end',   cur === LEAVES);
+  updateBookClasses();
   updateEdges();
   if (portraitMode) {
     btnPrev.disabled=pPage<=1;
@@ -393,6 +400,12 @@ function flip(leafIdx, forward) {
   const el=leafEl(leafIdx); if(!el) return;
   busy=true;
   el.classList.add('anim');
+  // Update has-left/has-right immediately so backgrounds are correct before animation
+  const nextCur = cur + (forward ? 1 : -1);
+  book.classList.toggle('at-start',  nextCur === 0);
+  book.classList.toggle('at-end',    nextCur === LEAVES);
+  book.classList.toggle('has-left',  nextCur > 0);
+  book.classList.toggle('has-right', nextCur < LEAVES);
   if(forward){loadImg(leafIdx*2);if(leafIdx<LEAVES)loadImg(leafIdx*2+1);}
   else        {loadImg(leafIdx*2-1);if(leafIdx>1)loadImg((leafIdx-1)*2);}
   requestAnimationFrame(()=>{
@@ -508,6 +521,13 @@ function endDragFlip(e) {
   const pct=forward?-dx/halfW:dx/halfW;
   const fast=forward?-dx>65:dx>65;
   const ok=pct>0.35||fast;
+  if(ok){
+    const nextCur=cur+(forward?1:-1);
+    book.classList.toggle('at-start', nextCur===0);
+    book.classList.toggle('at-end',   nextCur===LEAVES);
+    book.classList.toggle('has-left',  nextCur>0);
+    book.classList.toggle('has-right', nextCur<LEAVES);
+  }
 
   const target=ok?(forward?-180:0):(forward?0:-180);
   el.classList.remove('dragging-leaf');
@@ -660,6 +680,7 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')zOverlay.classList.r
 
 // ── init ─────────────────────────────────────────
 buildLeaves();
+updateBookClasses(); // set has-left/has-right before first paint
 checkOrientation();
 updateUI();
 loadImg(1); loadImg(2);

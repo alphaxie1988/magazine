@@ -1,0 +1,739 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>T&amp;R 31 May 2026</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#ebe8e2;--page:#fff;
+  --ui-bg:rgba(255,255,255,0.88);--ui-border:#ddd;
+  --flip-dur:0.7s;--flip-ease:cubic-bezier(0.645,0.045,0.355,1);
+}
+html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+
+#viewer{width:100%;height:100%;display:flex;flex-direction:column;
+  align-items:center;position:relative;overflow:hidden}
+
+/* ── Landscape spread ─────────────────────────── */
+#spread-view{
+  flex:1;display:flex;align-items:center;justify-content:center;
+  width:100%;overflow:hidden;padding:16px 60px;cursor:grab;
+  will-change:transform}
+#spread-view.dragging{cursor:grabbing}
+
+#book-scene{perspective:2400px;transform-origin:center center}
+
+#book{position:relative;transform-style:preserve-3d}
+#book::after{
+  content:'';position:absolute;bottom:-18px;left:8%;width:84%;height:24px;
+  background:radial-gradient(ellipse,rgba(0,0,0,0.28) 0%,transparent 72%);
+  filter:blur(6px);pointer-events:none;z-index:-1}
+
+.static-bg{position:absolute;top:0;width:50%;height:100%;background:var(--page);pointer-events:none}
+.static-bg.left{left:0;box-shadow:inset -4px 0 10px rgba(0,0,0,0.07),2px 0 8px rgba(0,0,0,0.06)}
+.static-bg.right{right:0;box-shadow:inset 4px 0 10px rgba(0,0,0,0.07),-2px 0 8px rgba(0,0,0,0.06)}
+.spine{position:absolute;left:calc(50% - 2px);top:0;width:4px;height:100%;
+  background:linear-gradient(to right,rgba(0,0,0,0.13),rgba(0,0,0,0.05),rgba(0,0,0,0.02));
+  z-index:900;pointer-events:none}
+
+/* ── Leaves ───────────────────────────────────── */
+.leaf{
+  position:absolute;top:0;left:50%;width:50%;height:100%;
+  transform-origin:left center;transform-style:preserve-3d;
+  transition:transform var(--flip-dur) var(--flip-ease);
+  cursor:grab;user-select:none}
+.leaf.flipped{transform:rotateY(-180deg)}
+.leaf.anim{z-index:9000!important}
+.leaf.dragging-leaf{cursor:grabbing;transition:none!important}
+
+.leaf-face{position:absolute;inset:0;backface-visibility:hidden;
+  -webkit-backface-visibility:hidden;background:var(--page);overflow:hidden}
+.leaf-back{transform:rotateY(180deg)}
+.leaf-face img{width:100%;height:100%;object-fit:cover;display:block;
+  opacity:0;transition:opacity 0.3s;pointer-events:none}
+.leaf-face img.loaded{opacity:1}
+.leaf-face::before{
+  content:'';position:absolute;top:50%;left:50%;
+  transform:translate(-50%,-50%);width:20px;height:20px;border-radius:50%;
+  border:2px solid #e0dbd4;border-top-color:#aaa;
+  animation:spin 0.7s linear infinite;pointer-events:none;z-index:2}
+.leaf-face.done::before{display:none}
+.leaf-front::after{
+  content:'';position:absolute;right:0;top:0;width:16px;height:100%;
+  background:linear-gradient(to right,transparent,rgba(0,0,0,0.06));pointer-events:none}
+@keyframes spin{to{transform:translate(-50%,-50%) rotate(360deg)}}
+
+/* ── Portrait single-page viewer ─────────────── */
+#portrait-view{
+  flex:1;display:none;align-items:center;justify-content:center;
+  width:100%;overflow:hidden;padding:8px 48px;position:relative}
+
+#pv-track{
+  width:100%;height:100%;position:relative;overflow:hidden;
+  display:flex;align-items:center;justify-content:center}
+
+#pv-img{
+  max-width:100%;max-height:100%;object-fit:contain;display:block;
+  border-radius:2px;box-shadow:0 4px 20px rgba(0,0,0,0.22);
+  touch-action:pan-y;user-select:none;-webkit-user-drag:none;
+  transition:transform 0.35s ease,opacity 0.25s ease}
+
+/* ── Nav buttons ──────────────────────────────── */
+.nav-btn{
+  position:absolute;top:50%;transform:translateY(calc(-50% - 40px));
+  width:40px;height:72px;
+  background:var(--ui-bg);border:1px solid var(--ui-border);border-radius:4px;
+  cursor:pointer;display:flex;align-items:center;justify-content:center;
+  font-size:22px;color:#666;backdrop-filter:blur(10px);
+  transition:opacity 0.15s,background 0.15s;
+  z-index:800;opacity:0.65;padding:0;line-height:1;user-select:none}
+.nav-btn:hover:not(:disabled){opacity:1;background:#fff}
+.nav-btn:active:not(:disabled){transform:translateY(calc(-50% - 40px)) scale(0.93)}
+.nav-btn:disabled{opacity:0.18;cursor:default;pointer-events:none}
+#btn-prev{left:10px}
+#btn-next{right:10px}
+
+/* ── Top controls ─────────────────────────────── */
+#top-controls{position:absolute;top:10px;right:10px;display:flex;gap:6px;z-index:800}
+.ctrl-btn{
+  width:34px;height:34px;
+  background:var(--ui-bg);border:1px solid var(--ui-border);border-radius:4px;
+  cursor:pointer;display:flex;align-items:center;justify-content:center;
+  font-size:15px;color:#555;backdrop-filter:blur(10px);
+  transition:background 0.12s,color 0.12s;padding:0;line-height:1}
+.ctrl-btn:hover{background:#fff;color:#222}
+.ctrl-btn:disabled{opacity:0.3;cursor:default}
+
+/* ── Page indicator ───────────────────────────── */
+#page-indicator{
+  position:absolute;bottom:92px;left:50%;transform:translateX(-50%);
+  background:var(--ui-bg);border:1px solid var(--ui-border);
+  border-radius:20px;padding:3px 12px;
+  font-size:11px;color:#777;letter-spacing:0.02em;
+  backdrop-filter:blur(10px);z-index:800;white-space:nowrap;pointer-events:none}
+
+/* ── Thumbnail strip ──────────────────────────── */
+#thumb-strip{
+  width:100%;height:82px;flex-shrink:0;
+  background:var(--ui-bg);border-top:1px solid var(--ui-border);
+  display:flex;align-items:center;
+  overflow-x:auto;overflow-y:hidden;
+  padding:6px 10px;gap:5px;
+  scrollbar-width:thin;scrollbar-color:#c8c4be transparent}
+#thumb-strip::-webkit-scrollbar{height:3px}
+#thumb-strip::-webkit-scrollbar-thumb{background:#c8c4be;border-radius:2px}
+.thumb{
+  flex-shrink:0;width:44px;height:62px;border-radius:2px;overflow:hidden;
+  cursor:pointer;border:2px solid transparent;
+  transition:border-color 0.15s,transform 0.15s,opacity 0.2s;
+  opacity:0.6;position:relative}
+.thumb:hover{opacity:0.9;transform:scale(1.06)}
+.thumb.active{border-color:#666;opacity:1}
+.thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.thumb-n{
+  position:absolute;bottom:1px;right:2px;
+  font-size:8px;color:rgba(0,0,0,0.45);
+  background:rgba(255,255,255,0.65);padding:0 2px;border-radius:1px;line-height:1.5}
+
+/* ── Zoom overlay ─────────────────────────────── */
+#zoom-overlay{
+  position:fixed;inset:0;background:rgba(10,10,10,0.88);
+  z-index:9999;display:none;align-items:center;justify-content:center;cursor:zoom-out}
+#zoom-overlay.open{display:flex}
+#zoom-wrap img{max-width:90vw;max-height:90vh;display:block;
+  object-fit:contain;user-select:none;-webkit-user-drag:none}
+#zoom-close{
+  position:fixed;top:14px;right:14px;width:38px;height:38px;border-radius:50%;
+  background:rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,0.25);
+  color:#fff;font-size:18px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  transition:background 0.12s;z-index:10000}
+#zoom-close:hover{background:rgba(255,255,255,0.22)}
+
+/* ── Portrait responsive ──────────────────────── */
+@media(max-width:600px){
+  .nav-btn{width:34px;height:56px;font-size:18px}
+  #btn-prev{left:6px}#btn-next{right:6px}
+  #thumb-strip{height:66px}
+  .thumb{width:34px;height:48px}
+  #page-indicator{bottom:76px}
+}
+</style>
+</head>
+<body>
+<div id="viewer">
+  <!-- Landscape spread view -->
+  <div id="spread-view">
+    <div id="book-scene">
+      <div id="book">
+        <div class="static-bg left"></div>
+        <div class="static-bg right"></div>
+        <div class="spine"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Portrait single-page view -->
+  <div id="portrait-view">
+    <div id="pv-track">
+      <img id="pv-img" src="" alt="Page">
+    </div>
+  </div>
+
+  <button class="nav-btn" id="btn-prev" disabled>&#8249;</button>
+  <button class="nav-btn" id="btn-next">&#8250;</button>
+
+  <div id="top-controls">
+    <button class="ctrl-btn" id="btn-zi" title="Zoom in">+</button>
+    <button class="ctrl-btn" id="btn-zo" title="Zoom out" disabled>−</button>
+    <button class="ctrl-btn" id="btn-fs" title="Fullscreen">⛶</button>
+  </div>
+
+  <div id="page-indicator">Page 1 of 20</div>
+  <div id="thumb-strip"></div>
+</div>
+
+<div id="zoom-overlay">
+  <button id="zoom-close">&#10005;</button>
+  <div id="zoom-wrap"><img src="" alt=""></div>
+</div>
+
+<script>
+const TOTAL  = 20;
+const LEAVES = 10;
+const W_H    = 1191 / 1685;
+
+// ── state ────────────────────────────────────────
+let cur      = 0;     // spread leaf state (0..LEAVES)
+let busy     = false;
+let scale    = 1;
+let px       = 0, py = 0;
+let panning  = false;
+let dsx      = 0, dsy = 0, dpx = 0, dpy = 0;
+let portraitMode = false;
+let pPage    = 1;     // portrait current page (1..TOTAL)
+let dragFlip = null;  // active drag-to-flip state
+let didDrag  = false; // suppress click after drag
+
+// ── refs ─────────────────────────────────────────
+const book       = document.getElementById('book');
+const scene      = document.getElementById('book-scene');
+const spreadView = document.getElementById('spread-view');
+const portraitView=document.getElementById('portrait-view');
+const pvImg      = document.getElementById('pv-img');
+const indicator  = document.getElementById('page-indicator');
+const thumbStrip = document.getElementById('thumb-strip');
+const btnPrev    = document.getElementById('btn-prev');
+const btnNext    = document.getElementById('btn-next');
+const btnZI      = document.getElementById('btn-zi');
+const btnZO      = document.getElementById('btn-zo');
+const btnFS      = document.getElementById('btn-fs');
+const zOverlay   = document.getElementById('zoom-overlay');
+
+// ── orientation ──────────────────────────────────
+function checkOrientation() {
+  const was = portraitMode;
+  portraitMode = window.innerHeight > window.innerWidth;
+  if (portraitMode === was) { resize(); return; }
+
+  if (portraitMode) {
+    // landscape → portrait: compute current page
+    pPage = cur === 0 ? 1 : cur === LEAVES ? TOTAL : cur * 2;
+    spreadView.style.display = 'none';
+    portraitView.style.display = 'flex';
+    btnZI.style.display = btnZO.style.display = 'none';
+    loadImg(pPage);
+    pvImg.src = pageSrc(pPage);
+    pvImg.style.opacity = '1';
+    pvImg.style.transform = '';
+  } else {
+    // portrait → landscape: sync spread to portrait page
+    portraitView.style.display = 'none';
+    spreadView.style.display = 'flex';
+    btnZI.style.display = btnZO.style.display = '';
+    const target = pageToLeaf(pPage);
+    // instantly jump without animation
+    for (let i = 1; i <= LEAVES; i++) {
+      const el = leafEl(i);
+      if (!el) continue;
+      el.style.transition = 'none';
+      if (i <= target) el.classList.add('flipped');
+      else             el.classList.remove('flipped');
+    }
+    cur = target;
+    restack();
+    setTimeout(() => {
+      for (let i = 1; i <= LEAVES; i++) {
+        const el = leafEl(i);
+        if (el) el.style.transition = '';
+      }
+    }, 50);
+    resize();
+  }
+  updateUI();
+}
+
+// ── resize ───────────────────────────────────────
+function resize() {
+  if (portraitMode) return;
+  const sw = spreadView.clientWidth  - 96;
+  const sh = spreadView.clientHeight - 12;
+  const aspect = 2 * W_H;
+  let h = sh, w = h * aspect;
+  if (w > sw) { w = sw; h = w / aspect; }
+  book.style.width  = w + 'px';
+  book.style.height = h + 'px';
+}
+new ResizeObserver(() => {
+  checkOrientation();
+  resize();
+}).observe(document.documentElement);
+
+// ── helpers ──────────────────────────────────────
+function pageSrc(n) {
+  return `pages/page_${String(n).padStart(2,'0')}.jpg`;
+}
+
+// ── lazy load ────────────────────────────────────
+const loaded = new Set();
+
+function loadImg(n) {
+  if (loaded.has(n)) return;
+  loaded.add(n);
+  // portrait uses pvImg directly; spread uses leaf faces
+  const face = book.querySelector(`.leaf-face[data-p="${n}"]`);
+  if (!face) return;
+  const img = face.querySelector('img');
+  const tmp = new Image();
+  tmp.onload = () => { img.src = pageSrc(n); img.classList.add('loaded'); face.classList.add('done'); };
+  tmp.onerror = () => face.classList.add('done');
+  tmp.src = pageSrc(n);
+}
+
+function preload() {
+  if (portraitMode) {
+    for (let d = -2; d <= 2; d++) {
+      const n = pPage + d;
+      if (n >= 1 && n <= TOTAL) loadImg(n);
+    }
+    return;
+  }
+  if (cur === 0) loadImg(1);
+  else if (cur === LEAVES) loadImg(TOTAL);
+  else { loadImg(cur*2); loadImg(cur*2+1); }
+  for (let d = 1; d <= 2; d++) {
+    const nL = cur+d, pL = cur-d;
+    if (nL <= LEAVES) { loadImg(nL*2-1); loadImg(nL*2); }
+    if (pL >= 1)      { loadImg(pL*2+1); loadImg(pL*2); }
+  }
+}
+
+// ── leaf DOM ─────────────────────────────────────
+function leafEl(i) { return book.querySelector(`.leaf[data-l="${i}"]`); }
+
+function buildLeaves() {
+  const frag = document.createDocumentFragment();
+  for (let i = 1; i <= LEAVES; i++) {
+    const fp = 2*i-1, bp = 2*i;
+    const leaf = document.createElement('div');
+    leaf.className = 'leaf';
+    leaf.dataset.l = i;
+    leaf.style.zIndex = (LEAVES-i+1)*10;
+    leaf.innerHTML = `
+      <div class="leaf-face leaf-front" data-p="${fp}"><img alt="Page ${fp}"></div>
+      <div class="leaf-face leaf-back"  data-p="${bp}"><img alt="Page ${bp}"></div>`;
+    frag.appendChild(leaf);
+  }
+  book.appendChild(frag);
+}
+
+function restack() {
+  for (let i = 1; i <= LEAVES; i++) {
+    const el = leafEl(i);
+    if (!el) continue;
+    el.style.zIndex = i <= cur ? i*10 : (LEAVES-i+1)*10;
+  }
+}
+
+// ── page ↔ leaf ───────────────────────────────────
+function pageToLeaf(p) {
+  if (p <= 1) return 0;
+  return p % 2 === 0 ? p/2 : (p-1)/2;
+}
+
+// ── ui state ─────────────────────────────────────
+function updateUI() {
+  if (portraitMode) {
+    btnPrev.disabled = pPage <= 1;
+    btnNext.disabled = pPage >= TOTAL;
+    indicator.textContent = `Page ${pPage} of ${TOTAL}`;
+    highlightThumb(pPage);
+  } else {
+    btnPrev.disabled = cur <= 0;
+    btnNext.disabled = cur >= LEAVES;
+    if (cur === 0)          indicator.textContent = `Page 1 of ${TOTAL}`;
+    else if (cur===LEAVES)  indicator.textContent = `Page ${TOTAL} of ${TOTAL}`;
+    else                    indicator.textContent = `Pages ${cur*2}–${cur*2+1} of ${TOTAL}`;
+    const active1 = cur===0 ? 1 : cur===LEAVES ? TOTAL : cur*2;
+    const active2 = cur>0 && cur<LEAVES ? cur*2+1 : -1;
+    highlightThumb(active1, active2);
+  }
+  preload();
+}
+
+function highlightThumb(p1, p2) {
+  const thumbs = thumbStrip.querySelectorAll('.thumb');
+  thumbs.forEach((t,i) => {
+    const p = i+1;
+    const on = p===p1 || p===p2;
+    t.classList.toggle('active', on);
+    if (on) t.scrollIntoView({behavior:'smooth',inline:'nearest',block:'nearest'});
+  });
+}
+
+// ── spread flip ───────────────────────────────────
+function flip(leafIdx, forward) {
+  const el = leafEl(leafIdx);
+  if (!el) return;
+  busy = true;
+  el.classList.add('anim');
+  if (forward) { loadImg(leafIdx*2); if (leafIdx<LEAVES) loadImg(leafIdx*2+1); }
+  else         { loadImg(leafIdx*2-1); if (leafIdx>1) loadImg((leafIdx-1)*2); }
+  requestAnimationFrame(() => {
+    if (forward) el.classList.add('flipped');
+    else         el.classList.remove('flipped');
+  });
+  const fallback = setTimeout(done, 820);
+  el.addEventListener('transitionend', done, {once:true});
+  function done(e) {
+    if (e && e.propertyName !== 'transform') return;
+    clearTimeout(fallback);
+    el.classList.remove('anim');
+    cur += forward ? 1 : -1;
+    restack(); updateUI(); busy = false;
+  }
+}
+
+function goNextSpread() { if (!busy && cur<LEAVES) flip(cur+1,true); }
+function goPrevSpread() { if (!busy && cur>0)      flip(cur,false); }
+
+function goTo(target) {
+  target = Math.max(0,Math.min(LEAVES,target));
+  if (target===cur) return;
+  if (target>cur) { goNextSpread(); if (target-cur>1) setTimeout(()=>goTo(target),780); }
+  else            { goPrevSpread(); if (cur-target>1) setTimeout(()=>goTo(target),780); }
+}
+
+// ── portrait navigation ───────────────────────────
+function showPage(n, dir) {
+  n = Math.max(1, Math.min(TOTAL, n));
+  if (n === pPage) return;
+
+  // Preload
+  loadImg(n);
+  if (n+1<=TOTAL) loadImg(n+1);
+  if (n-1>=1)     loadImg(n-1);
+
+  // Slide animation
+  const dx = dir * 40;
+  pvImg.style.transition = 'none';
+  pvImg.style.transform  = `translateX(${dx}px)`;
+  pvImg.style.opacity    = '0.3';
+
+  const tmp = new Image();
+  tmp.onload = () => {
+    pvImg.src = pageSrc(n);
+    requestAnimationFrame(() => {
+      pvImg.style.transition = 'transform 0.3s ease,opacity 0.25s ease';
+      pvImg.style.transform  = 'translateX(0)';
+      pvImg.style.opacity    = '1';
+    });
+  };
+  tmp.onerror = () => { pvImg.src = pageSrc(n); };
+  tmp.src = pageSrc(n);
+
+  pPage = n;
+  updateUI();
+}
+
+// ── drag-to-flip (spread) ─────────────────────────
+function startDragFlip(e) {
+  if (busy || scale > 1 || portraitMode) return;
+  if (e.touches && e.touches.length !== 1) return;
+  const t = e.touches ? e.touches[0] : e;
+  const rect = book.getBoundingClientRect();
+  const relX  = t.clientX - rect.left;
+  const halfW = rect.width / 2;
+
+  let leafIdx, forward;
+  if (relX > halfW + 6 && cur < LEAVES) {
+    leafIdx = cur + 1; forward = true;
+  } else if (relX < halfW - 6 && cur > 0) {
+    leafIdx = cur; forward = false;
+  } else { return; }
+
+  const el = leafEl(leafIdx);
+  if (!el) return;
+
+  if (forward) { loadImg(leafIdx*2); if(leafIdx<LEAVES) loadImg(leafIdx*2+1); }
+  else         { loadImg(leafIdx*2-1); }
+
+  el.classList.add('anim','dragging-leaf');
+  dragFlip = { el, leafIdx, forward, startX: t.clientX, halfW };
+  document.body.style.cursor = 'grabbing';
+  if (e.cancelable) e.preventDefault();
+}
+
+function moveDragFlip(e) {
+  if (!dragFlip) return;
+  if (e.cancelable) e.preventDefault();
+  const t  = e.touches ? e.touches[0] : e;
+  const dx = t.clientX - dragFlip.startX;
+  const { el, forward, halfW } = dragFlip;
+
+  if (Math.abs(dx) > 4) didDrag = true;
+
+  const angle = forward
+    ? Math.max(-180, Math.min(0,  dx / halfW * 180))    // 0 → -180
+    : Math.max(-180, Math.min(0, -180 + dx / halfW * 180)); // -180 → 0
+
+  el.style.transform = `rotateY(${angle}deg)`;
+}
+
+function endDragFlip(e) {
+  if (!dragFlip) return;
+  const t   = e.changedTouches ? e.changedTouches[0] : e;
+  const dx  = t.clientX - dragFlip.startX;
+  const { el, leafIdx, forward, halfW } = dragFlip;
+  dragFlip = null;
+  document.body.style.cursor = '';
+
+  const pct  = forward ? -dx/halfW : dx/halfW;
+  const fast = forward ? -dx > 65 : dx > 65;
+  const ok   = pct > 0.35 || fast;
+
+  const target = ok ? (forward ? -180 : 0) : (forward ? 0 : -180);
+
+  el.classList.remove('dragging-leaf');
+  el.style.transition = `transform var(--flip-dur) var(--flip-ease)`;
+  el.style.transform  = `rotateY(${target}deg)`;
+
+  busy = true;
+  const fallback = setTimeout(done, 820);
+  el.addEventListener('transitionend', done, {once:true});
+
+  function done(ev) {
+    if (ev && ev.propertyName !== 'transform') return;
+    clearTimeout(fallback);
+    el.style.transform  = '';
+    el.style.transition = '';
+    el.classList.remove('anim');
+    if (ok) {
+      if (forward) el.classList.add('flipped');
+      else         el.classList.remove('flipped');
+      cur += forward ? 1 : -1;
+      restack();
+    }
+    updateUI();
+    busy = false;
+    setTimeout(() => { didDrag = false; }, 60);
+  }
+}
+
+// ── portrait touch swipe ──────────────────────────
+let pvTouchX = 0, pvDragging = false;
+
+function pvTouchStart(e) {
+  if (e.touches.length !== 1) return;
+  pvTouchX  = e.touches[0].clientX;
+  pvDragging = true;
+}
+function pvTouchMove(e) {
+  if (!pvDragging || e.touches.length !== 1) return;
+  const dx = e.touches[0].clientX - pvTouchX;
+  pvImg.style.transition = 'none';
+  pvImg.style.transform  = `translateX(${dx * 0.4}px)`;
+}
+function pvTouchEnd(e) {
+  if (!pvDragging) return;
+  pvDragging = false;
+  const dx = e.changedTouches[0].clientX - pvTouchX;
+  pvImg.style.transition = 'transform 0.25s ease,opacity 0.25s ease';
+  pvImg.style.transform  = 'translateX(0)';
+  if (Math.abs(dx) > 50) {
+    if (dx < 0) showPage(pPage+1,  1);
+    else        showPage(pPage-1, -1);
+  }
+}
+
+portraitView.addEventListener('touchstart', pvTouchStart, {passive:true});
+portraitView.addEventListener('touchmove',  pvTouchMove,  {passive:true});
+portraitView.addEventListener('touchend',   pvTouchEnd,   {passive:true});
+
+// ── global nav ────────────────────────────────────
+function goNext() {
+  if (portraitMode) showPage(pPage+1, 1);
+  else              goNextSpread();
+}
+function goPrev() {
+  if (portraitMode) showPage(pPage-1, -1);
+  else              goPrevSpread();
+}
+
+btnNext.addEventListener('click', goNext);
+btnPrev.addEventListener('click', goPrev);
+
+// ── spread drag events ────────────────────────────
+book.addEventListener('mousedown', startDragFlip);
+book.addEventListener('touchstart', startDragFlip, {passive:false});
+window.addEventListener('mousemove', moveDragFlip);
+window.addEventListener('touchmove', moveDragFlip, {passive:false});
+window.addEventListener('mouseup', endDragFlip);
+window.addEventListener('touchend', e => {
+  if (dragFlip) { endDragFlip(e); return; }
+});
+
+// ── zoom / pan (spread only) ──────────────────────
+function applyXform() {
+  scene.style.transform = `translate(${px}px,${py}px) scale(${scale})`;
+}
+function setScale(s, cx, cy) {
+  const r = spreadView.getBoundingClientRect();
+  const ox = cx - (r.left + r.width/2);
+  const oy = cy - (r.top  + r.height/2);
+  const f  = s / scale;
+  px = ox - f*(ox-px);
+  py = oy - f*(oy-py);
+  scale = Math.max(1, Math.min(4, s));
+  if (scale === 1) { px=0; py=0; }
+  applyXform();
+  btnZI.disabled = scale >= 4;
+  btnZO.disabled = scale <= 1;
+}
+
+spreadView.addEventListener('wheel', e => {
+  if (portraitMode) return;
+  e.preventDefault();
+  setScale(scale * (e.deltaY>0 ? 0.88 : 1.14), e.clientX, e.clientY);
+}, {passive:false});
+
+spreadView.addEventListener('mousedown', e => {
+  if (e.button!==0 || scale<=1) return;
+  panning=true; dsx=e.clientX; dsy=e.clientY; dpx=px; dpy=py;
+  spreadView.classList.add('dragging');
+});
+window.addEventListener('mousemove', e => {
+  if (!panning) return;
+  px=dpx+(e.clientX-dsx); py=dpy+(e.clientY-dsy); applyXform();
+});
+window.addEventListener('mouseup', () => { panning=false; spreadView.classList.remove('dragging'); });
+
+book.addEventListener('dblclick', e => {
+  if (portraitMode) return;
+  if (scale>1) setScale(1,e.clientX,e.clientY);
+  else         setScale(2.5,e.clientX,e.clientY);
+});
+
+// pinch-to-zoom
+let pt0=0;
+spreadView.addEventListener('touchstart', e => {
+  if (e.touches.length===2) {
+    pt0=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,
+                   e.touches[0].clientY-e.touches[1].clientY);
+  }
+},{passive:true});
+spreadView.addEventListener('touchmove', e => {
+  if (e.touches.length!==2 || portraitMode) return;
+  e.preventDefault();
+  const d=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,
+                     e.touches[0].clientY-e.touches[1].clientY);
+  const cx=(e.touches[0].clientX+e.touches[1].clientX)/2;
+  const cy=(e.touches[0].clientY+e.touches[1].clientY)/2;
+  setScale(scale*d/pt0,cx,cy); pt0=d;
+},{passive:false});
+
+// click half of book (spread only)
+book.addEventListener('click', e => {
+  if (busy || panning || scale>1 || didDrag || portraitMode) return;
+  const r=book.getBoundingClientRect();
+  const rx=e.clientX-r.left;
+  if      (rx>r.width*0.55) goNextSpread();
+  else if (rx<r.width*0.45) goPrevSpread();
+});
+
+// zoom buttons
+btnZI.addEventListener('click', () => {
+  const r=spreadView.getBoundingClientRect();
+  setScale(scale*1.35, r.left+r.width/2, r.top+r.height/2);
+});
+btnZO.addEventListener('click', () => {
+  const r=spreadView.getBoundingClientRect();
+  setScale(scale/1.35, r.left+r.width/2, r.top+r.height/2);
+});
+
+// ── fullscreen ────────────────────────────────────
+btnFS.addEventListener('click', () => {
+  if (!document.fullscreenElement) {
+    document.documentElement.requestFullscreen();
+    btnFS.textContent='⊡';
+  } else {
+    document.exitFullscreen();
+  }
+});
+document.addEventListener('fullscreenchange', () => {
+  if (!document.fullscreenElement) btnFS.textContent='⛶';
+  setTimeout(resize,80);
+});
+
+// ── keyboard ─────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (e.key==='ArrowRight'||e.key==='ArrowDown'||e.key===' ') goNext();
+  if (e.key==='ArrowLeft' ||e.key==='ArrowUp')               goPrev();
+  if (e.key==='Escape'&&scale>1) setScale(1,0,0);
+  if ((e.key==='+'||e.key==='=')&&!portraitMode) btnZI.click();
+  if (e.key==='-'&&!portraitMode)                btnZO.click();
+  if (e.key==='f'||e.key==='F') btnFS.click();
+});
+
+// ── right-click full-zoom overlay ─────────────────
+book.addEventListener('contextmenu', e => {
+  e.preventDefault();
+  const face=e.target.closest('.leaf-face');
+  if (!face) return;
+  const img=face.querySelector('img');
+  if (!img||!img.src) return;
+  zOverlay.querySelector('img').src=img.src;
+  zOverlay.classList.add('open');
+});
+document.getElementById('zoom-close').addEventListener('click', ()=>zOverlay.classList.remove('open'));
+zOverlay.addEventListener('click', e=>{ if(e.target===zOverlay) zOverlay.classList.remove('open'); });
+document.addEventListener('keydown', e=>{ if(e.key==='Escape') zOverlay.classList.remove('open'); });
+
+// ── thumbnails ────────────────────────────────────
+function buildThumbs() {
+  const frag=document.createDocumentFragment();
+  for (let i=1;i<=TOTAL;i++) {
+    const item=document.createElement('div');
+    item.className='thumb';
+    item.innerHTML=`<img src="thumbs/thumb_${String(i).padStart(2,'0')}.jpg" loading="lazy" alt="Page ${i}"><span class="thumb-n">${i}</span>`;
+    item.addEventListener('click', () => {
+      if (portraitMode) showPage(i, i>pPage ? 1 : -1);
+      else              goTo(pageToLeaf(i));
+    });
+    frag.appendChild(item);
+  }
+  thumbStrip.appendChild(frag);
+}
+
+// ── init ─────────────────────────────────────────
+buildLeaves();
+buildThumbs();
+checkOrientation();
+updateUI();
+loadImg(1); loadImg(2);
+</script>
+</body>
+</html>

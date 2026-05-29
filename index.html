@@ -491,34 +491,66 @@ function _pvReset() {
 }
 
 function _pvSnapBack() {
+  // Forward snap-back: current page returns to 0
   pvImg.style.transition = `transform 260ms ease-out`;
   pvImg.style.transform  = 'rotateY(0deg)';
-  setTimeout(() => { _pvReset(); pvFlipper.style.zIndex = ''; }, 300);
+  setTimeout(() => {
+    _pvReset(); pvFlipper.style.zIndex = '';
+    pvImgUnder.src = pPage+1<=TOTAL ? medSrc(pPage+1) : '';
+  }, 300);
 }
 
-function _pvCommit(n, dir, fromAngle) {
-  const target  = dir === 1 ? -180 : 180;
-  const remain  = Math.abs(target - fromAngle);
-  const dur     = Math.max(80, PV_DUR * remain / 180);
-  pvImg.style.transition = `transform ${dur}ms ease-in`;
-  pvImg.style.transform  = `rotateY(${target}deg)`;
+function _pvSnapBackBwd() {
+  // Backward snap-back: arriving previous page retreats to 180 (invisible), restore current
+  pvImg.style.transition = `transform 260ms ease-out`;
+  pvImg.style.transform  = 'rotateY(180deg)';
   setTimeout(() => {
-    // pvImg is now invisible (backface); pvImgUnder shows page n
-    pPage = n; updateUI();
-    loadImg(n); loadImg(n+1); loadImg(n-1);
-    // Move pvFlipper behind pvImgUnder while we swap its image
-    pvFlipper.style.zIndex = '-1';
     _pvReset();
-    pvImg.src = medSrc(n);
+    pvFlipper.style.zIndex = '-1';
+    pvImg.src = medSrc(pPage);
     const restore = () => { pvFlipper.style.zIndex = ''; };
     pvImg.onload = () => { restore(); pvImg.onload = null; };
     if (pvImg.complete && pvImg.naturalWidth) restore();
-    else setTimeout(restore, 120);  // fallback
-    // Preload under for the NEXT likely flip
-    const nextN = dir === 1 ? n+1 : n-1;
-    pvImgUnder.src = (nextN>=1&&nextN<=TOTAL) ? medSrc(nextN) : '';
-    pvBusy = false;
-  }, dur + 20);
+    else setTimeout(restore, 120);
+    pvImgUnder.src = pPage+1<=TOTAL ? medSrc(pPage+1) : '';
+  }, 300);
+}
+
+function _pvCommit(n, dir, fromAngle) {
+  if (dir === 1) {
+    // Forward: current page (pvImg) rotates from fromAngle → -180
+    const target = -180;
+    const remain = Math.abs(target - fromAngle);
+    const dur    = Math.max(80, PV_DUR * remain / 180);
+    pvImg.style.transition = `transform ${dur}ms ease-in`;
+    pvImg.style.transform  = `rotateY(${target}deg)`;
+    setTimeout(() => {
+      pPage = n; updateUI();
+      loadImg(n); loadImg(n+1); loadImg(n-1);
+      pvFlipper.style.zIndex = '-1';
+      _pvReset();
+      pvImg.src = medSrc(n);
+      const restore = () => { pvFlipper.style.zIndex = ''; };
+      pvImg.onload = () => { restore(); pvImg.onload = null; };
+      if (pvImg.complete && pvImg.naturalWidth) restore();
+      else setTimeout(restore, 120);
+      pvImgUnder.src = n+1<=TOTAL ? medSrc(n+1) : '';
+      pvBusy = false;
+    }, dur + 20);
+  } else {
+    // Backward: previous page (pvImg) arrives from fromAngle → 0
+    const remain = Math.abs(fromAngle);
+    const dur    = Math.max(80, PV_DUR * remain / 180);
+    pvImg.style.transition = `transform ${dur}ms ease-in`;
+    pvImg.style.transform  = 'rotateY(0deg)';
+    setTimeout(() => {
+      pPage = n; updateUI();
+      loadImg(n); loadImg(n+1); loadImg(n-1);
+      _pvReset();
+      pvImgUnder.src = n-1>=1 ? medSrc(n-1) : '';
+      pvBusy = false;
+    }, dur + 20);
+  }
 }
 
 function showPage(n, _dir) {
@@ -526,12 +558,22 @@ function showPage(n, _dir) {
   if (n === pPage || pvBusy) return;
   pvBusy = true;
   const dir = n > pPage ? 1 : -1;
-  pvImgUnder.src = medSrc(n);
   loadImg(n); if(n+1<=TOTAL)loadImg(n+1); if(n-1>=1)loadImg(n-1);
   _pvReset();
-  pvImg.style.transformOrigin = dir===1 ? 'left center' : 'right center';
-  playFlip();
-  requestAnimationFrame(() => _pvCommit(n, dir, 0));
+  if (dir === 1) {
+    pvImgUnder.src = medSrc(n);
+    pvImg.style.transformOrigin = 'left center';
+    playFlip();
+    requestAnimationFrame(() => _pvCommit(n, dir, 0));
+  } else {
+    // Previous page arrives from behind the right edge
+    pvImgUnder.src = medSrc(pPage);
+    pvImg.src = medSrc(n);
+    pvImg.style.transformOrigin = 'right center';
+    pvImg.style.transform = 'rotateY(180deg)';
+    playFlip();
+    requestAnimationFrame(() => _pvCommit(n, dir, 180));
+  }
 }
 
 // ── portrait drag / pinch ─────────────────────────
@@ -552,13 +594,27 @@ function pvDragMove(x, y) {
     pvDragInfo.dir = dx < 0 ? 1 : -1;
     const ok = (pvDragInfo.dir===1 && pPage<TOTAL) || (pvDragInfo.dir===-1 && pPage>1);
     if (!ok) { pvDragInfo.dir=0; return; }
-    pvImg.style.transformOrigin = pvDragInfo.dir===1 ? 'left center' : 'right center';
-    pvImgUnder.src = medSrc(pvDragInfo.dir===1 ? pPage+1 : pPage-1);
+    pvImg.style.transition = 'none';
+    if (pvDragInfo.dir === 1) {
+      pvImg.style.transformOrigin = 'left center';
+      pvImgUnder.src = medSrc(pPage+1);
+    } else {
+      // Backward: previous page arrives from right edge
+      pvImgUnder.src = medSrc(pPage);
+      pvImg.src = medSrc(pPage-1);
+      pvImg.style.transformOrigin = 'right center';
+      pvImg.style.transform = 'rotateY(180deg)';
+    }
   }
-  const raw = dx / (window.innerWidth * 0.45) * 90;
-  const angle = pvDragInfo.dir===1
-    ? Math.max(-89, Math.min(0, raw))
-    : Math.max(0,   Math.min(89, raw));
+  const swipeW = window.innerWidth * 0.45;
+  let angle;
+  if (pvDragInfo.dir === 1) {
+    // Forward: 0 → -89 as user swipes left
+    angle = Math.max(-89, Math.min(0, dx / swipeW * 90));
+  } else {
+    // Backward: 180 → 91 as user swipes right (page arriving, invisible until <90)
+    angle = Math.max(91, Math.min(180, 180 - dx / swipeW * 180));
+  }
   pvImg.style.transform = `rotateY(${angle}deg)`;
   pvDragInfo.angle = angle;
 }
@@ -568,13 +624,13 @@ function pvDragEnd(x) {
   pvDragInfo = null;
   if (pan) return;
   if (dir === 0) { _pvSnapBack(); return; }
-  if (Math.abs(angle) >= 28) {
+  const committed = dir === 1 ? Math.abs(angle) >= 28 : (180 - angle) >= 28;
+  if (committed) {
     pvBusy = true;
     playFlip();
     _pvCommit(dir===1 ? pPage+1 : pPage-1, dir, angle);
   } else {
-    _pvSnapBack();
-    pvImgUnder.src = pPage+1<=TOTAL ? medSrc(pPage+1) : '';
+    if (dir === 1) _pvSnapBack(); else _pvSnapBackBwd();
   }
 }
 

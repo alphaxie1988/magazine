@@ -1,0 +1,6 @@
+data.pdf
+*.pdf
+*.pdf:Zone.Identifier
+*.png
+.playwright-mcp/
+magazine-*.png

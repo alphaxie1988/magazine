@@ -10,7 +10,6 @@
   --bg:#ebe8e2;--page:#fff;
   --ui-bg:rgba(255,255,255,0.88);--ui-border:#ddd;
   --flip-dur:0.7s;--flip-ease:cubic-bezier(0.645,0.045,0.355,1);
-  --thumb-h:82px;
 }
 html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);
   font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
@@ -54,8 +53,8 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);
   position:absolute;top:3px;height:calc(100% - 6px);
   width:0;overflow:hidden;pointer-events:none;
   transition:width 0.55s ease;
-  /* alternating light/dark strips = stacked page edges */
-  background:repeating-linear-gradient(to bottom,
+  /* alternating light/dark vertical strips = stacked page edges */
+  background:repeating-linear-gradient(to right,
     #ccc9c2 0px,#ccc9c2 1px,
     #eae7e1 1px,#eae7e1 3px)}
 #edge-right{
@@ -143,50 +142,6 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);
   font-size:11px;color:#777;letter-spacing:0.02em;
   backdrop-filter:blur(10px);z-index:800;white-space:nowrap;pointer-events:none}
 
-/* ── Thumbnail strip (auto-hide, absolutely positioned) ─── */
-#thumb-strip{
-  position:absolute;bottom:0;left:0;right:0;
-  height:var(--thumb-h);
-  background:var(--ui-bg);border-top:1px solid var(--ui-border);
-  display:flex;align-items:center;justify-content:center;
-  transform:translateY(100%);
-  transition:transform 0.32s ease;
-  z-index:700}
-#viewer.show-thumbs #thumb-strip{transform:translateY(0)}
-
-/* inner scrollable row — centers on wide screens, scrolls on narrow */
-#thumb-inner{
-  display:flex;align-items:center;
-  overflow-x:auto;overflow-y:hidden;
-  max-width:100%;
-  padding:6px 14px;gap:5px;
-  scrollbar-width:thin;scrollbar-color:#c8c4be transparent}
-#thumb-inner::-webkit-scrollbar{height:3px}
-#thumb-inner::-webkit-scrollbar-thumb{background:#c8c4be;border-radius:2px}
-
-.thumb{
-  flex-shrink:0;width:44px;height:62px;border-radius:2px;overflow:hidden;
-  cursor:pointer;border:2px solid transparent;
-  transition:border-color 0.15s,transform 0.15s,opacity 0.2s;
-  opacity:0.6;position:relative}
-.thumb:hover{opacity:0.9;transform:scale(1.06)}
-.thumb.active{border-color:#666;opacity:1}
-.thumb img{width:100%;height:100%;object-fit:cover;display:block}
-.thumb-n{
-  position:absolute;bottom:1px;right:2px;
-  font-size:8px;color:rgba(0,0,0,0.45);
-  background:rgba(255,255,255,0.65);padding:0 2px;border-radius:1px;line-height:1.5}
-
-/* ── Thumb hint (tap indicator shown at bottom edge) ── */
-#thumb-hint{
-  position:absolute;bottom:0;left:50%;transform:translateX(-50%);
-  padding:3px 14px 5px;font-size:10px;color:#999;letter-spacing:0.05em;
-  background:var(--ui-bg);border:1px solid var(--ui-border);
-  border-bottom:none;border-radius:6px 6px 0 0;
-  z-index:710;cursor:pointer;user-select:none;
-  transition:opacity 0.2s}
-#viewer.show-thumbs #thumb-hint{opacity:0;pointer-events:none}
-
 /* ── Zoom overlay ─────────────────────────────── */
 #zoom-overlay{
   position:fixed;inset:0;background:rgba(10,10,10,0.88);
@@ -204,10 +159,8 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);
 
 /* ── Mobile ───────────────────────────────────── */
 @media(max-width:600px){
-  :root{--thumb-h:66px}
   .nav-btn{width:34px;height:56px;font-size:18px}
   #btn-prev{left:6px}#btn-next{right:6px}
-  .thumb{width:34px;height:48px}
 }
 </style>
 </head>
@@ -241,14 +194,6 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);
   </div>
 
   <div id="page-indicator">Page 1 of 20</div>
-
-  <!-- Thumbnail strip (auto-hide) -->
-  <div id="thumb-strip">
-    <div id="thumb-inner"><!-- built by JS --></div>
-  </div>
-
-  <!-- Small tab at bottom edge to reveal thumbnails -->
-  <div id="thumb-hint" title="Show pages">▲ pages</div>
 </div>
 
 <div id="zoom-overlay">
@@ -284,47 +229,12 @@ const spreadView = document.getElementById('spread-view');
 const portraitView=document.getElementById('portrait-view');
 const pvImg      = document.getElementById('pv-img');
 const indicator  = document.getElementById('page-indicator');
-const thumbStrip = document.getElementById('thumb-strip');
-const thumbInner = document.getElementById('thumb-inner');
-const thumbHint  = document.getElementById('thumb-hint');
 const btnPrev    = document.getElementById('btn-prev');
 const btnNext    = document.getElementById('btn-next');
 const btnZI      = document.getElementById('btn-zi');
 const btnZO      = document.getElementById('btn-zo');
 const btnFS      = document.getElementById('btn-fs');
 const zOverlay   = document.getElementById('zoom-overlay');
-
-// ── thumbnail auto-hide ───────────────────────────
-let thumbTimer = null;
-
-function showThumbs(hold) {
-  viewer.classList.add('show-thumbs');
-  clearTimeout(thumbTimer);
-  thumbTimer = setTimeout(hideThumbs, hold || 3500);
-}
-function hideThumbs() {
-  viewer.classList.remove('show-thumbs');
-}
-
-// Mouse: show when cursor within 60px of bottom
-document.addEventListener('mousemove', e => {
-  if (window.innerHeight - e.clientY < 60) showThumbs(3000);
-});
-// Stay visible while hovering the strip itself
-thumbStrip.addEventListener('mouseenter', () => { clearTimeout(thumbTimer); });
-thumbStrip.addEventListener('mouseleave', () => {
-  thumbTimer = setTimeout(hideThumbs, 1500);
-});
-// Touch: show when tap within 80px of bottom
-document.addEventListener('touchstart', e => {
-  if (!e.touches.length) return;
-  const y = e.touches[0].clientY;
-  if (window.innerHeight - y < 80) showThumbs(4000);
-}, {passive:true});
-// Hint tab click
-thumbHint.addEventListener('click', () => showThumbs(5000));
-// Keep visible while user manually scrolls thumbs (wheel only — not programmatic scrollIntoView)
-thumbInner.addEventListener('wheel', () => showThumbs(3000));
 
 // ── orientation ──────────────────────────────────
 function checkOrientation() {
@@ -468,26 +378,14 @@ function updateUI() {
     btnPrev.disabled=pPage<=1;
     btnNext.disabled=pPage>=TOTAL;
     indicator.textContent=`Page ${pPage} of ${TOTAL}`;
-    highlightThumb(pPage);
   } else {
     btnPrev.disabled=cur<=0;
     btnNext.disabled=cur>=LEAVES;
-    if(cur===0)         indicator.textContent=`Page 1 of ${TOTAL}`;
+    if(cur===0)           indicator.textContent=`Page 1 of ${TOTAL}`;
     else if(cur===LEAVES) indicator.textContent=`Page ${TOTAL} of ${TOTAL}`;
-    else                indicator.textContent=`Pages ${cur*2}–${cur*2+1} of ${TOTAL}`;
-    const a1=cur===0?1:cur===LEAVES?TOTAL:cur*2;
-    const a2=(cur>0&&cur<LEAVES)?cur*2+1:-1;
-    highlightThumb(a1,a2);
+    else                  indicator.textContent=`Pages ${cur*2}–${cur*2+1} of ${TOTAL}`;
   }
   preload();
-}
-function highlightThumb(p1,p2) {
-  thumbInner.querySelectorAll('.thumb').forEach((t,i)=>{
-    const p=i+1, on=p===p1||p===p2;
-    t.classList.toggle('active',on);
-    if(on && viewer.classList.contains('show-thumbs'))
-      t.scrollIntoView({behavior:'smooth',inline:'nearest',block:'nearest'});
-  });
 }
 
 // ── spread flip ───────────────────────────────────
@@ -760,26 +658,8 @@ document.getElementById('zoom-close').addEventListener('click',()=>zOverlay.clas
 zOverlay.addEventListener('click',e=>{if(e.target===zOverlay)zOverlay.classList.remove('open');});
 document.addEventListener('keydown',e=>{if(e.key==='Escape')zOverlay.classList.remove('open');});
 
-// ── thumbnails ────────────────────────────────────
-function buildThumbs() {
-  const frag=document.createDocumentFragment();
-  for(let i=1;i<=TOTAL;i++){
-    const item=document.createElement('div');
-    item.className='thumb';
-    item.innerHTML=`<img src="thumbs/thumb_${String(i).padStart(2,'0')}.jpg" loading="lazy" alt="Page ${i}"><span class="thumb-n">${i}</span>`;
-    item.addEventListener('click',()=>{
-      showThumbs(4000);
-      if(portraitMode) showPage(i,i>pPage?1:-1);
-      else             goTo(pageToLeaf(i));
-    });
-    frag.appendChild(item);
-  }
-  thumbInner.appendChild(frag);
-}
-
 // ── init ─────────────────────────────────────────
 buildLeaves();
-buildThumbs();
 checkOrientation();
 updateUI();
 loadImg(1); loadImg(2);

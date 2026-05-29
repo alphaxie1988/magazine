@@ -291,8 +291,8 @@ document.addEventListener('touchstart', e => {
 }, {passive:true});
 // Hint tab click
 thumbHint.addEventListener('click', () => showThumbs(5000));
-// Keep visible while scrolling thumbs
-thumbInner.addEventListener('scroll', () => showThumbs(3000));
+// Keep visible while user manually scrolls thumbs (wheel only — not programmatic scrollIntoView)
+thumbInner.addEventListener('wheel', () => showThumbs(3000));
 
 // ── orientation ──────────────────────────────────
 function checkOrientation() {
@@ -444,7 +444,8 @@ function highlightThumb(p1,p2) {
   thumbInner.querySelectorAll('.thumb').forEach((t,i)=>{
     const p=i+1, on=p===p1||p===p2;
     t.classList.toggle('active',on);
-    if(on) t.scrollIntoView({behavior:'smooth',inline:'nearest',block:'nearest'});
+    if(on && viewer.classList.contains('show-thumbs'))
+      t.scrollIntoView({behavior:'smooth',inline:'nearest',block:'nearest'});
   });
 }
 

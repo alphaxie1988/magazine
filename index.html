@@ -107,12 +107,12 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);
   width:100%;overflow:hidden;padding:8px 48px;position:relative}
 #pv-track{
   width:100%;height:100%;position:relative;overflow:hidden;
-  display:flex;align-items:center;justify-content:center}
+  display:flex;align-items:center;justify-content:center;
+  perspective:1200px}
 #pv-img{
   max-width:100%;max-height:100%;object-fit:contain;display:block;
   border-radius:2px;box-shadow:0 4px 20px rgba(0,0,0,0.22);
-  touch-action:pan-y;user-select:none;-webkit-user-drag:none;
-  transition:transform 0.35s ease,opacity 0.25s ease}
+  touch-action:none;user-select:none;-webkit-user-drag:none}
 
 /* ── Nav buttons ──────────────────────────────── */
 .nav-btn{
@@ -253,8 +253,9 @@ function checkOrientation() {
     portraitView.style.display = 'flex';
     btnZI.style.display = btnZO.style.display = 'none';
     loadImg(pPage);
-    pvImg.src = pageSrc(pPage);
-    pvImg.style.opacity='1'; pvImg.style.transform='';
+    pvImg.src = medSrc(pPage);
+    pvImg.style.transition=''; pvImg.style.transform='';
+    pvBusy = false; pvDragInfo = null;
   } else {
     portraitView.style.display = 'none';
     spreadView.style.display = 'flex';
@@ -453,29 +454,71 @@ function goTo(target){
   else          { goPrevSpread(); if(cur-target>1) setTimeout(()=>goTo(target),780); }
 }
 
-// ── portrait navigation ───────────────────────────
-function showPage(n, dir) {
-  n=Math.max(1,Math.min(TOTAL,n));
-  if(n===pPage) return;
-  loadImg(n);
-  if(n+1<=TOTAL) loadImg(n+1);
-  if(n-1>=1)     loadImg(n-1);
-  const dx=dir*40;
-  pvImg.style.transition='none';
-  pvImg.style.transform=`translateX(${dx}px)`;
-  pvImg.style.opacity='0.3';
-  const tmp=new Image();
-  tmp.onload=()=>{
-    pvImg.src=pageSrc(n);
-    requestAnimationFrame(()=>{
-      pvImg.style.transition='transform 0.3s ease,opacity 0.25s ease';
-      pvImg.style.transform='translateX(0)';
-      pvImg.style.opacity='1';
-    });
-  };
-  tmp.onerror=()=>{pvImg.src=pageSrc(n);};
-  tmp.src=pageSrc(n);
-  pPage=n; updateUI();
+// ── portrait 3D flip ──────────────────────────────
+let pvBusy = false;
+let pvDragInfo = null;
+const PV_DUR1 = 200;  // fold-away half (ms)
+const PV_DUR2 = 270;  // unfold half (ms)
+const PV_EASE = 'cubic-bezier(0.645,0.045,0.355,1)';
+
+function _pvFlipTo(n, forward, startAngle) {
+  const end1 = forward ? 90 : -90;
+  const dur1 = Math.max(60, PV_DUR1 * Math.abs(end1 - startAngle) / 90);
+  pvImg.style.transition = `transform ${dur1}ms ease-in`;
+  pvImg.style.transform  = `rotateY(${end1}deg)`;
+  setTimeout(() => {
+    pvImg.src = medSrc(n);
+    pPage = n; updateUI();
+    loadImg(n+1); loadImg(n-1);
+    const start2 = forward ? -90 : 90;
+    pvImg.style.transition = 'none';
+    pvImg.style.transform  = `rotateY(${start2}deg)`;
+    requestAnimationFrame(()=>requestAnimationFrame(()=>{
+      pvImg.style.transition = `transform ${PV_DUR2}ms ${PV_EASE}`;
+      pvImg.style.transform  = 'rotateY(0deg)';
+      setTimeout(()=>{ pvImg.style.transition=''; pvImg.style.transform=''; pvBusy=false; }, PV_DUR2+40);
+    }));
+  }, dur1+8);
+}
+
+function showPage(n, _dir) {
+  n = Math.max(1, Math.min(TOTAL, n));
+  if (n===pPage || pvBusy) return;
+  pvBusy = true;
+  loadImg(n); if(n+1<=TOTAL)loadImg(n+1); if(n-1>=1)loadImg(n-1);
+  playFlip();
+  _pvFlipTo(n, n>pPage, 0);
+}
+
+// ── portrait drag-to-flip ─────────────────────────
+function pvDragStart(x) {
+  if (pvBusy) return;
+  pvDragInfo = { x0:x, angle:0 };
+  pvImg.style.transition = 'none';
+}
+function pvDragMove(x) {
+  if (!pvDragInfo) return;
+  const dx = x - pvDragInfo.x0;
+  const angle = Math.max(-85, Math.min(85, -dx / (window.innerWidth * 0.55) * 90));
+  pvImg.style.transform = `rotateY(${angle}deg)`;
+  pvDragInfo.angle = angle;
+}
+function pvDragEnd(x) {
+  if (!pvDragInfo) return;
+  const { angle } = pvDragInfo;
+  pvDragInfo = null;
+  const forward  = angle >  30 && pPage < TOTAL;
+  const backward = angle < -30 && pPage > 1;
+  if (forward || backward) {
+    pvBusy = true;
+    const n = forward ? pPage+1 : pPage-1;
+    loadImg(n); playFlip();
+    _pvFlipTo(n, forward, angle);
+  } else {
+    pvImg.style.transition = 'transform 220ms ease-out';
+    pvImg.style.transform  = 'rotateY(0deg)';
+    setTimeout(()=>{ pvImg.style.transition=''; pvImg.style.transform=''; }, 260);
+  }
 }
 
 // ── drag-to-flip (spread) ─────────────────────────
@@ -584,21 +627,13 @@ window.addEventListener('touchend', e=>{ if(dragFlip){endDragFlip(e);return;} })
 window.addEventListener('touchcancel',()=>abortDragFlip());
 window.addEventListener('blur',    ()=>abortDragFlip());
 
-// ── portrait touch swipe ──────────────────────────
-let pvTouchX=0, pvDrag=false;
-portraitView.addEventListener('touchstart',e=>{if(e.touches.length===1){pvTouchX=e.touches[0].clientX;pvDrag=true;}},{passive:true});
-portraitView.addEventListener('touchmove', e=>{
-  if(!pvDrag||e.touches.length!==1)return;
-  pvImg.style.transition='none';
-  pvImg.style.transform=`translateX(${(e.touches[0].clientX-pvTouchX)*0.4}px)`;
-},{passive:true});
-portraitView.addEventListener('touchend',e=>{
-  if(!pvDrag)return; pvDrag=false;
-  const dx=e.changedTouches[0].clientX-pvTouchX;
-  pvImg.style.transition='transform 0.25s ease,opacity 0.25s ease';
-  pvImg.style.transform='translateX(0)';
-  if(Math.abs(dx)>50){ playFlip(); if(dx<0)showPage(pPage+1,1); else showPage(pPage-1,-1); }
-},{passive:true});
+// ── portrait touch / mouse drag ───────────────────
+portraitView.addEventListener('touchstart',e=>{if(e.touches.length===1)pvDragStart(e.touches[0].clientX);},{passive:true});
+portraitView.addEventListener('touchmove', e=>{if(!pvDragInfo||e.touches.length!==1)return; if(e.cancelable)e.preventDefault(); pvDragMove(e.touches[0].clientX);},{passive:false});
+portraitView.addEventListener('touchend',  e=>{pvDragEnd(e.changedTouches[0].clientX);},{passive:true});
+portraitView.addEventListener('mousedown', e=>pvDragStart(e.clientX));
+window.addEventListener('mousemove', e=>{ if(pvDragInfo)pvDragMove(e.clientX); });
+window.addEventListener('mouseup',   e=>{ if(pvDragInfo)pvDragEnd(e.clientX); });
 
 // ── global nav ────────────────────────────────────
 function goNext(){ if(portraitMode)showPage(pPage+1,1); else goNextSpread(); }

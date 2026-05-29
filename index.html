@@ -105,11 +105,15 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);
 #portrait-view{
   flex:1;display:none;align-items:center;justify-content:center;
   width:100%;overflow:hidden;padding:0;position:relative}
-#pv-track{
-  width:100%;height:100%;position:relative;overflow:hidden;
-  display:flex;align-items:center;justify-content:center;
-  perspective:1200px}
-#pv-img{
+#pv-track{width:100%;height:100%;position:relative;overflow:hidden}
+#pv-stage{position:absolute;inset:0;perspective:1400px}
+.pv-layer{
+  position:absolute;inset:0;
+  display:flex;align-items:center;justify-content:center}
+#pv-flipper{
+  z-index:1;
+  backface-visibility:hidden;-webkit-backface-visibility:hidden}
+.pv-page{
   max-width:100%;max-height:100%;object-fit:contain;display:block;
   border-radius:2px;box-shadow:0 4px 20px rgba(0,0,0,0.22);
   touch-action:none;user-select:none;-webkit-user-drag:none}
@@ -186,7 +190,14 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);
 
   <div id="portrait-view">
     <div id="pv-track">
-      <img id="pv-img" src="" alt="Page">
+      <div id="pv-stage">
+        <div class="pv-layer">
+          <img id="pv-img-under" class="pv-page" src="" alt="" aria-hidden="true">
+        </div>
+        <div id="pv-flipper" class="pv-layer">
+          <img id="pv-img" class="pv-page" src="" alt="Page">
+        </div>
+      </div>
     </div>
   </div>
 
@@ -232,7 +243,11 @@ const viewer     = document.getElementById('viewer');
 const book       = document.getElementById('book');
 const scene      = document.getElementById('book-scene');
 const spreadView = document.getElementById('spread-view');
-const portraitView=document.getElementById('portrait-view');
+const portraitView = document.getElementById('portrait-view');
+const pvTrack    = document.getElementById('pv-track');
+const pvStage    = document.getElementById('pv-stage');
+const pvFlipper  = document.getElementById('pv-flipper');
+const pvImgUnder = document.getElementById('pv-img-under');
 const pvImg      = document.getElementById('pv-img');
 const indicator  = document.getElementById('page-indicator');
 const btnPrev    = document.getElementById('btn-prev');
@@ -254,8 +269,11 @@ function checkOrientation() {
     btnZI.style.display = btnZO.style.display = 'none';
     loadImg(pPage);
     pvImg.src = medSrc(pPage);
-    pvImg.style.transition=''; pvImg.style.transform='';
-    pvBusy = false; pvDragInfo = null;
+    if(pPage+1<=TOTAL) pvImgUnder.src = medSrc(pPage+1); else pvImgUnder.src='';
+    pvFlipper.style.cssText = '';   // clear all inline styles
+    pvStage.style.transform = '';
+    scale=1; px=0; py=0;
+    pvBusy=false; pvDragInfo=null; pvPinching=false;
   } else {
     portraitView.style.display = 'none';
     spreadView.style.display = 'flex';
@@ -454,70 +472,107 @@ function goTo(target){
   else          { goPrevSpread(); if(cur-target>1) setTimeout(()=>goTo(target),780); }
 }
 
-// ── portrait 3D flip ──────────────────────────────
-let pvBusy = false;
-let pvDragInfo = null;
-const PV_DUR1 = 200;  // fold-away half (ms)
-const PV_DUR2 = 270;  // unfold half (ms)
-const PV_EASE = 'cubic-bezier(0.645,0.045,0.355,1)';
+// ── portrait page-turn (two-layer edge-fold) ──────
+// pvFlipper (z=1, top) folds away around left/right edge.
+// pvImgUnder (z=0) shows the destination page underneath.
+// backface-visibility:hidden on pvFlipper hides it past 90°.
+let pvBusy    = false;
+let pvDragInfo  = null;
+let pvPinching  = false;
+const PV_DUR  = 420;  // full 180° flip duration ms
+const PV_EASE = 'cubic-bezier(0.4,0,0.2,1)';
 
-function _pvFlipTo(n, forward, startAngle) {
-  const end1 = forward ? 90 : -90;
-  const dur1 = Math.max(60, PV_DUR1 * Math.abs(end1 - startAngle) / 90);
-  pvImg.style.transition = `transform ${dur1}ms ease-in`;
-  pvImg.style.transform  = `rotateY(${end1}deg)`;
+function _pvReset() {
+  pvFlipper.style.transition = 'none';
+  pvFlipper.style.transform  = '';
+  pvFlipper.style.transformOrigin = '';
+}
+
+function _pvSnapBack() {
+  pvFlipper.style.transition = `transform 260ms ease-out`;
+  pvFlipper.style.transform  = 'rotateY(0deg)';
+  setTimeout(() => { _pvReset(); pvFlipper.style.zIndex = ''; }, 300);
+}
+
+function _pvCommit(n, dir, fromAngle) {
+  const target  = dir === 1 ? -180 : 180;
+  const remain  = Math.abs(target - fromAngle);
+  const dur     = Math.max(80, PV_DUR * remain / 180);
+  pvFlipper.style.transition = `transform ${dur}ms ease-in`;
+  pvFlipper.style.transform  = `rotateY(${target}deg)`;
   setTimeout(() => {
-    pvImg.src = medSrc(n);
+    // pvFlipper is now invisible (backface); pvImgUnder shows page n
     pPage = n; updateUI();
-    loadImg(n+1); loadImg(n-1);
-    const start2 = forward ? -90 : 90;
-    pvImg.style.transition = 'none';
-    pvImg.style.transform  = `rotateY(${start2}deg)`;
-    requestAnimationFrame(()=>requestAnimationFrame(()=>{
-      pvImg.style.transition = `transform ${PV_DUR2}ms ${PV_EASE}`;
-      pvImg.style.transform  = 'rotateY(0deg)';
-      setTimeout(()=>{ pvImg.style.transition=''; pvImg.style.transform=''; pvBusy=false; }, PV_DUR2+40);
-    }));
-  }, dur1+8);
+    loadImg(n); loadImg(n+1); loadImg(n-1);
+    // Move pvFlipper behind pvImgUnder while we swap its image
+    pvFlipper.style.zIndex = '-1';
+    _pvReset();
+    pvImg.src = medSrc(n);
+    const restore = () => { pvFlipper.style.zIndex = ''; };
+    pvImg.onload = () => { restore(); pvImg.onload = null; };
+    if (pvImg.complete && pvImg.naturalWidth) restore();
+    else setTimeout(restore, 120);  // fallback
+    // Preload under for the NEXT likely flip
+    const nextN = dir === 1 ? n+1 : n-1;
+    pvImgUnder.src = (nextN>=1&&nextN<=TOTAL) ? medSrc(nextN) : '';
+    pvBusy = false;
+  }, dur + 20);
 }
 
 function showPage(n, _dir) {
   n = Math.max(1, Math.min(TOTAL, n));
-  if (n===pPage || pvBusy) return;
+  if (n === pPage || pvBusy) return;
   pvBusy = true;
+  const dir = n > pPage ? 1 : -1;
+  pvImgUnder.src = medSrc(n);
   loadImg(n); if(n+1<=TOTAL)loadImg(n+1); if(n-1>=1)loadImg(n-1);
+  pvFlipper.style.transformOrigin = dir===1 ? 'left center' : 'right center';
+  _pvReset();
   playFlip();
-  _pvFlipTo(n, n>pPage, 0);
+  requestAnimationFrame(() => _pvCommit(n, dir, 0));
 }
 
-// ── portrait drag-to-flip ─────────────────────────
-function pvDragStart(x) {
+// ── portrait drag / pinch ─────────────────────────
+function pvDragStart(x, y) {
   if (pvBusy) return;
-  pvDragInfo = { x0:x, angle:0 };
-  pvImg.style.transition = 'none';
+  pvDragInfo = { x0:x, y0:y, px0:px, py0:py, pan:scale>1, dir:0, angle:0 };
+  if (!pvDragInfo.pan) pvFlipper.style.transition = 'none';
 }
-function pvDragMove(x) {
+function pvDragMove(x, y) {
   if (!pvDragInfo) return;
   const dx = x - pvDragInfo.x0;
-  const angle = Math.max(-85, Math.min(85, -dx / (window.innerWidth * 0.55) * 90));
-  pvImg.style.transform = `rotateY(${angle}deg)`;
+  const dy = y - pvDragInfo.y0;
+  if (pvDragInfo.pan) {
+    px = pvDragInfo.px0 + dx; py = pvDragInfo.py0 + dy; applyXform(); return;
+  }
+  if (pvDragInfo.dir === 0) {
+    if (Math.abs(dx) < 6) return;
+    pvDragInfo.dir = dx < 0 ? 1 : -1;
+    const ok = (pvDragInfo.dir===1 && pPage<TOTAL) || (pvDragInfo.dir===-1 && pPage>1);
+    if (!ok) { pvDragInfo.dir=0; return; }
+    pvFlipper.style.transformOrigin = pvDragInfo.dir===1 ? 'left center' : 'right center';
+    pvImgUnder.src = medSrc(pvDragInfo.dir===1 ? pPage+1 : pPage-1);
+  }
+  const raw = -dx / (window.innerWidth * 0.45) * 90;
+  const angle = pvDragInfo.dir===1
+    ? Math.max(-89, Math.min(0, raw))
+    : Math.max(0,   Math.min(89, raw));
+  pvFlipper.style.transform = `rotateY(${angle}deg)`;
   pvDragInfo.angle = angle;
 }
 function pvDragEnd(x) {
   if (!pvDragInfo) return;
-  const { angle } = pvDragInfo;
+  const { pan, dir, angle } = pvDragInfo;
   pvDragInfo = null;
-  const forward  = angle >  30 && pPage < TOTAL;
-  const backward = angle < -30 && pPage > 1;
-  if (forward || backward) {
+  if (pan) return;
+  if (dir === 0) { _pvSnapBack(); return; }
+  if (Math.abs(angle) >= 28) {
     pvBusy = true;
-    const n = forward ? pPage+1 : pPage-1;
-    loadImg(n); playFlip();
-    _pvFlipTo(n, forward, angle);
+    playFlip();
+    _pvCommit(dir===1 ? pPage+1 : pPage-1, dir, angle);
   } else {
-    pvImg.style.transition = 'transform 220ms ease-out';
-    pvImg.style.transform  = 'rotateY(0deg)';
-    setTimeout(()=>{ pvImg.style.transition=''; pvImg.style.transform=''; }, 260);
+    _pvSnapBack();
+    pvImgUnder.src = pPage+1<=TOTAL ? medSrc(pPage+1) : '';
   }
 }
 
@@ -627,12 +682,36 @@ window.addEventListener('touchend', e=>{ if(dragFlip){endDragFlip(e);return;} })
 window.addEventListener('touchcancel',()=>abortDragFlip());
 window.addEventListener('blur',    ()=>abortDragFlip());
 
-// ── portrait touch / mouse drag ───────────────────
-portraitView.addEventListener('touchstart',e=>{if(e.touches.length===1)pvDragStart(e.touches[0].clientX);},{passive:true});
-portraitView.addEventListener('touchmove', e=>{if(!pvDragInfo||e.touches.length!==1)return; if(e.cancelable)e.preventDefault(); pvDragMove(e.touches[0].clientX);},{passive:false});
-portraitView.addEventListener('touchend',  e=>{pvDragEnd(e.changedTouches[0].clientX);},{passive:true});
-portraitView.addEventListener('mousedown', e=>pvDragStart(e.clientX));
-window.addEventListener('mousemove', e=>{ if(pvDragInfo)pvDragMove(e.clientX); });
+// ── portrait touch (drag + pinch) ────────────────
+let pvPt0 = 0;
+portraitView.addEventListener('touchstart', e=>{
+  if (e.touches.length===2) {
+    pvPinching=true;
+    if(pvDragInfo){pvDragInfo=null;_pvSnapBack();}
+    pvPt0=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);
+  } else if (e.touches.length===1 && !pvPinching) {
+    pvDragStart(e.touches[0].clientX, e.touches[0].clientY);
+  }
+},{passive:true});
+portraitView.addEventListener('touchmove', e=>{
+  if (e.touches.length===2) {
+    if(!pvPinching)return;
+    if(e.cancelable)e.preventDefault();
+    const d=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);
+    const cx=(e.touches[0].clientX+e.touches[1].clientX)/2, cy=(e.touches[0].clientY+e.touches[1].clientY)/2;
+    setScale(scale*d/pvPt0,cx,cy); pvPt0=d; return;
+  }
+  if(!pvDragInfo||e.touches.length!==1)return;
+  if(e.cancelable)e.preventDefault();
+  pvDragMove(e.touches[0].clientX, e.touches[0].clientY);
+},{passive:false});
+portraitView.addEventListener('touchend', e=>{
+  if(e.touches.length===0) pvPinching=false;
+  if(pvDragInfo) pvDragEnd(e.changedTouches[0].clientX);
+},{passive:true});
+// ── portrait mouse (desktop testing) ─────────────
+portraitView.addEventListener('mousedown', e=>pvDragStart(e.clientX,e.clientY));
+window.addEventListener('mousemove', e=>{ if(pvDragInfo)pvDragMove(e.clientX,e.clientY); });
 window.addEventListener('mouseup',   e=>{ if(pvDragInfo)pvDragEnd(e.clientX); });
 
 // ── global nav ────────────────────────────────────
@@ -642,9 +721,12 @@ btnNext.addEventListener('click',goNext);
 btnPrev.addEventListener('click',goPrev);
 
 // ── zoom / pan ────────────────────────────────────
-function applyXform(){ scene.style.transform=`translate(${px}px,${py}px) scale(${scale})`; }
+function applyXform(){
+  const t=`translate(${px}px,${py}px) scale(${scale})`;
+  if(portraitMode) pvStage.style.transform=t; else scene.style.transform=t;
+}
 function setScale(s,cx,cy){
-  const r=spreadView.getBoundingClientRect();
+  const r=(portraitMode?portraitView:spreadView).getBoundingClientRect();
   const ox=cx-(r.left+r.width/2), oy=cy-(r.top+r.height/2);
   const f=s/scale;
   px=ox-f*(ox-px); py=oy-f*(oy-py);
@@ -652,7 +734,7 @@ function setScale(s,cx,cy){
   if(scale===1){px=0;py=0;}
   applyXform();
   btnZI.disabled=scale>=4; btnZO.disabled=scale<=1;
-  if(scale>=1.8) upgradeVisibleHD(); // swap to full-res when zoomed in
+  if(scale>=1.8&&!portraitMode) upgradeVisibleHD();
 }
 
 spreadView.addEventListener('wheel',e=>{

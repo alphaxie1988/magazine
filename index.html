@@ -501,9 +501,9 @@ function _pvSnapBack() {
 }
 
 function _pvSnapBackBwd() {
-  // Backward snap-back: arriving previous page retreats to 180 (invisible), restore current
+  // Backward snap-back: arriving previous page retreats to -180 (invisible), restore current
   pvImg.style.transition = `transform 260ms ease-out`;
-  pvImg.style.transform  = 'rotateY(180deg)';
+  pvImg.style.transform  = 'rotateY(-180deg)';
   setTimeout(() => {
     _pvReset();
     pvFlipper.style.zIndex = '-1';
@@ -566,13 +566,13 @@ function showPage(n, _dir) {
     playFlip();
     requestAnimationFrame(() => _pvCommit(n, dir, 0));
   } else {
-    // Previous page arrives from behind the right edge
+    // Previous page arrives from the left (reverse of forward: left pivot, -180→0)
     pvImgUnder.src = medSrc(pPage);
     pvImg.src = medSrc(n);
-    pvImg.style.transformOrigin = 'right center';
-    pvImg.style.transform = 'rotateY(180deg)';
+    pvImg.style.transformOrigin = 'left center';
+    pvImg.style.transform = 'rotateY(-180deg)';
     playFlip();
-    requestAnimationFrame(() => _pvCommit(n, dir, 180));
+    requestAnimationFrame(() => _pvCommit(n, dir, -180));
   }
 }
 
@@ -599,11 +599,11 @@ function pvDragMove(x, y) {
       pvImg.style.transformOrigin = 'left center';
       pvImgUnder.src = medSrc(pPage+1);
     } else {
-      // Backward: previous page arrives from right edge
+      // Backward: previous page arrives from left (reverse of forward)
       pvImgUnder.src = medSrc(pPage);
       pvImg.src = medSrc(pPage-1);
-      pvImg.style.transformOrigin = 'right center';
-      pvImg.style.transform = 'rotateY(180deg)';
+      pvImg.style.transformOrigin = 'left center';
+      pvImg.style.transform = 'rotateY(-180deg)';
     }
   }
   const swipeW = window.innerWidth * 0.45;
@@ -612,8 +612,8 @@ function pvDragMove(x, y) {
     // Forward: 0 → -89 as user swipes left
     angle = Math.max(-89, Math.min(0, dx / swipeW * 90));
   } else {
-    // Backward: 180 → 91 as user swipes right (page arriving, invisible until <90)
-    angle = Math.max(91, Math.min(180, 180 - dx / swipeW * 180));
+    // Backward: -180 → -91 as user swipes right (exact reverse of forward)
+    angle = Math.max(-180, Math.min(-91, -180 + dx / swipeW * 180));
   }
   pvImg.style.transform = `rotateY(${angle}deg)`;
   pvDragInfo.angle = angle;
@@ -624,7 +624,7 @@ function pvDragEnd(x) {
   pvDragInfo = null;
   if (pan) return;
   if (dir === 0) { _pvSnapBack(); return; }
-  const committed = dir === 1 ? Math.abs(angle) >= 28 : (180 - angle) >= 28;
+  const committed = dir === 1 ? Math.abs(angle) >= 28 : (angle + 180) >= 28;
   if (committed) {
     pvBusy = true;
     playFlip();

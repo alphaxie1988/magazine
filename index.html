@@ -36,9 +36,12 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);
 .static-bg{position:absolute;top:0;width:50%;height:100%;background:var(--bg);pointer-events:none;transition:background 0s,box-shadow 0s}
 .static-bg.left{left:0}
 .static-bg.right{right:0}
-/* Only show page-white and inset shadows when content is present on that side */
+/* Show page-white + shadows only when content is present on that side */
 #book.has-left  .static-bg.left {background:var(--page);box-shadow:inset -4px 0 10px rgba(0,0,0,0.07),2px 0 8px rgba(0,0,0,0.06)}
 #book.has-right .static-bg.right{background:var(--page);box-shadow:inset 4px 0 10px rgba(0,0,0,0.07),-2px 0 8px rgba(0,0,0,0.06)}
+/* Remove the outward (bleeding) shadow toward the empty side */
+#book.at-start .static-bg.right{box-shadow:inset 4px 0 10px rgba(0,0,0,0.07)}
+#book.at-end   .static-bg.left {box-shadow:inset -4px 0 10px rgba(0,0,0,0.07)}
 .spine{position:absolute;left:calc(50% - 2px);top:0;width:4px;height:100%;
   background:linear-gradient(to right,rgba(0,0,0,0.13),rgba(0,0,0,0.05),rgba(0,0,0,0.02));
   z-index:900;pointer-events:none;transition:opacity 0s}
@@ -395,10 +398,38 @@ function updateUI() {
   preload();
 }
 
+// ── page flip sound (Web Audio synthesis) ─────────
+let _ac = null;
+function playFlip() {
+  try {
+    if (!_ac) _ac = new (window.AudioContext || window.webkitAudioContext)();
+    if (_ac.state === 'suspended') _ac.resume();
+    const now = _ac.currentTime, dur = 0.22;
+    const bufLen = Math.floor(_ac.sampleRate * dur);
+    const buf = _ac.createBuffer(1, bufLen, _ac.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < bufLen; i++) d[i] = Math.random() * 2 - 1;
+    const src = _ac.createBufferSource();
+    src.buffer = buf;
+    const flt = _ac.createBiquadFilter();
+    flt.type = 'bandpass';
+    flt.frequency.setValueAtTime(2200, now);
+    flt.frequency.exponentialRampToValueAtTime(700, now + dur);
+    flt.Q.value = 0.9;
+    const gain = _ac.createGain();
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.linearRampToValueAtTime(0.15, now + 0.012);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + dur);
+    src.connect(flt); flt.connect(gain); gain.connect(_ac.destination);
+    src.start(now); src.stop(now + dur);
+  } catch(e) {}
+}
+
 // ── spread flip ───────────────────────────────────
 function flip(leafIdx, forward) {
   const el=leafEl(leafIdx); if(!el) return;
   busy=true;
+  playFlip();
   el.classList.add('anim');
   // Update has-left/has-right immediately so backgrounds are correct before animation
   const nextCur = cur + (forward ? 1 : -1);
@@ -522,6 +553,7 @@ function endDragFlip(e) {
   const fast=forward?-dx>65:dx>65;
   const ok=pct>0.35||fast;
   if(ok){
+    playFlip();
     const nextCur=cur+(forward?1:-1);
     book.classList.toggle('at-start', nextCur===0);
     book.classList.toggle('at-end',   nextCur===LEAVES);
@@ -575,7 +607,7 @@ portraitView.addEventListener('touchend',e=>{
   const dx=e.changedTouches[0].clientX-pvTouchX;
   pvImg.style.transition='transform 0.25s ease,opacity 0.25s ease';
   pvImg.style.transform='translateX(0)';
-  if(Math.abs(dx)>50){ if(dx<0)showPage(pPage+1,1); else showPage(pPage-1,-1); }
+  if(Math.abs(dx)>50){ playFlip(); if(dx<0)showPage(pPage+1,1); else showPage(pPage-1,-1); }
 },{passive:true});
 
 // ── global nav ────────────────────────────────────

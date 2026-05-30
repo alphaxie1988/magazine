@@ -846,47 +846,33 @@ const btnMusic = document.getElementById('btn-music');
 const bgMusic  = new Audio('music.mp3');
 bgMusic.loop   = true;
 bgMusic.volume = 0.35;
-let musicOn    = false;
-let musicStarted = false;
 
-function startMusic() {
-  if (musicStarted) return;
-  musicStarted = true;
-  bgMusic.play().then(() => {
-    musicOn = true;
-    btnMusic.textContent = '♪';
-    btnMusic.title = 'Mute music';
-    btnMusic.style.color = '#4a9eff';
-  }).catch(() => { musicStarted = false; });
+function _syncMusicBtn() {
+  const playing = !bgMusic.paused;
+  btnMusic.style.color = playing ? '#4a9eff' : '';
+  btnMusic.title = playing ? 'Mute music' : 'Play music';
 }
 
 btnMusic.addEventListener('click', () => {
-  if (!musicStarted || bgMusic.paused) {
-    startMusic();
+  if (bgMusic.paused) {
+    bgMusic.play().catch(()=>{});
   } else {
-    musicOn = !musicOn;
-    if (musicOn) {
-      bgMusic.play().catch(()=>{});
-      btnMusic.textContent = '♪';
-      btnMusic.style.color = '#4a9eff';
-      btnMusic.title = 'Mute music';
-    } else {
-      bgMusic.pause();
-      btnMusic.textContent = '♪';
-      btnMusic.style.color = '';
-      btnMusic.title = 'Play music';
-    }
+    bgMusic.pause();
   }
+  _syncMusicBtn();
 });
 
-// Start music on first user interaction
+bgMusic.addEventListener('play',  _syncMusicBtn);
+bgMusic.addEventListener('pause', _syncMusicBtn);
+
+// Auto-start on first user interaction (browsers block autoplay before gesture)
 function _onFirstInteraction() {
-  startMusic();
+  bgMusic.play().catch(()=>{});
   document.removeEventListener('pointerdown', _onFirstInteraction);
-  document.removeEventListener('keydown', _onFirstInteraction);
+  document.removeEventListener('keydown',     _onFirstInteraction);
 }
 document.addEventListener('pointerdown', _onFirstInteraction);
-document.addEventListener('keydown', _onFirstInteraction);
+document.addEventListener('keydown',     _onFirstInteraction);
 
 // ── fullscreen ────────────────────────────────────
 btnFS.addEventListener('click',()=>{

@@ -206,6 +206,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);
   <button class="nav-btn" id="btn-next">&#8250;</button>
 
   <div id="top-controls">
+    <button class="ctrl-btn" id="btn-music" title="Toggle music">♪</button>
     <button class="ctrl-btn" id="btn-zi" title="Zoom in">+</button>
     <button class="ctrl-btn" id="btn-zo" title="Zoom out" disabled>−</button>
     <button class="ctrl-btn" id="btn-fs" title="Fullscreen">⛶</button>
@@ -839,6 +840,53 @@ book.addEventListener('click',e=>{
 
 btnZI.addEventListener('click',()=>{ const r=spreadView.getBoundingClientRect(); setScale(scale*1.35,r.left+r.width/2,r.top+r.height/2); });
 btnZO.addEventListener('click',()=>{ const r=spreadView.getBoundingClientRect(); setScale(scale/1.35,r.left+r.width/2,r.top+r.height/2); });
+
+// ── background music ─────────────────────────────
+const btnMusic = document.getElementById('btn-music');
+const bgMusic  = new Audio('music.mp3');
+bgMusic.loop   = true;
+bgMusic.volume = 0.35;
+let musicOn    = false;
+let musicStarted = false;
+
+function startMusic() {
+  if (musicStarted) return;
+  musicStarted = true;
+  bgMusic.play().then(() => {
+    musicOn = true;
+    btnMusic.textContent = '♪';
+    btnMusic.title = 'Mute music';
+    btnMusic.style.color = '#4a9eff';
+  }).catch(() => { musicStarted = false; });
+}
+
+btnMusic.addEventListener('click', () => {
+  if (!musicStarted || bgMusic.paused) {
+    startMusic();
+  } else {
+    musicOn = !musicOn;
+    if (musicOn) {
+      bgMusic.play().catch(()=>{});
+      btnMusic.textContent = '♪';
+      btnMusic.style.color = '#4a9eff';
+      btnMusic.title = 'Mute music';
+    } else {
+      bgMusic.pause();
+      btnMusic.textContent = '♪';
+      btnMusic.style.color = '';
+      btnMusic.title = 'Play music';
+    }
+  }
+});
+
+// Start music on first user interaction
+function _onFirstInteraction() {
+  startMusic();
+  document.removeEventListener('pointerdown', _onFirstInteraction);
+  document.removeEventListener('keydown', _onFirstInteraction);
+}
+document.addEventListener('pointerdown', _onFirstInteraction);
+document.addEventListener('keydown', _onFirstInteraction);
 
 // ── fullscreen ────────────────────────────────────
 btnFS.addEventListener('click',()=>{

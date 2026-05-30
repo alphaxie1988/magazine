@@ -854,15 +854,19 @@ function _syncMusicBtn() {
   btnMusic.title = playing ? 'Mute music' : 'Play music';
 }
 
+let userMuted = false;
+
 function _tryStartMusic() {
-  if (!bgMusic.paused) return;
+  if (userMuted || !bgMusic.paused) return;
   bgMusic.play().catch(()=>{});
 }
 
 btnMusic.addEventListener('click', () => {
   if (bgMusic.paused) {
+    userMuted = false;
     bgMusic.play().catch(()=>{});
   } else {
+    userMuted = true;
     bgMusic.pause();
   }
   _syncMusicBtn();
